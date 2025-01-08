@@ -1,0 +1,97 @@
+{
+  "graphSchemaRepresentation": {
+    "graphSchema": {
+      "nodeLabels": [
+        {
+          "$id": "nl:Patent",
+          "token": "Patent"
+        },
+        {
+          "$id": "nl:Person",
+          "token": "Person"
+        },
+        {
+          "$id": "nl:Organization",
+          "token": "Organization"
+        },
+        {
+          "$id": "nl:Chemical",
+          "token": "Chemical"
+        }
+      ],
+      "relationshipTypes": [
+        {
+          "$id": "rel:invented_by",
+          "token": "invented_by",
+          "source": "Patent",
+          "target": "Person"
+        },
+        {
+          "$id": "rel:assigned_to",
+          "token": "assigned_to",
+          "source": "Patent",
+          "target": "Organization"
+        },
+        {
+          "$id": "rel:contains",
+          "token": "contains",
+          "source": "Patent",
+          "target": "Chemical"
+        },
+        {
+          "$id": "rel:composed_of",
+          "token": "composed_of",
+          "source": "Chemical",
+          "target": "Subcomponent"
+        }
+      ],
+      "nodeObjectTypes": [
+        {
+          "labels": {
+            "$ref": "#nl:Patent"
+          },
+          "properties": {
+            "token": "id",
+            "type": { "type": "string" },
+            "nullable": false
+          },
+          "$id": "n:Patent"
+        },
+        {
+          "labels": {
+            "$ref": "#nl:Person"
+          },
+          "properties": {
+            "token": "name",
+            "type": { "type": "string" },
+            "nullable": false
+          },
+          "$id": "n:Person"
+        },
+        {
+          "labels": {
+            "$ref": "#nl:Organization"
+          },
+          "properties": {
+            "token": "name",
+            "type": { "type": "string" },
+            "nullable": false
+          },
+          "$id": "n:Organization"
+        },
+        {
+          "labels": {
+            "$ref": "#nl:Chemical"
+          },
+          "properties": {
+            "token": "name",
+            "type": { "type": "string" },
+            "nullable": false
+          },
+          "$id": "n:Chemical"
+        }
+      ]
+    },
+    "relationshipObjectTypes": []
+  }
+}
