@@ -2,34 +2,28 @@ import Tesseract, { PSM , Worker, Block, createWorker} from "tesseract.js";
 import * as pdfjs from "pdfjs-dist";
 
 
-export async function createOCRWorker() {
-    const worker = await createWorker("eng", 1,{
-        logger: (info) => console.log(info), // Logs OCR progress
-      });
-    // Set additional worker parameters
-    await worker.setParameters({
-      tessedit_pageseg_mode: PSM.AUTO, // Set page segmentation mode to automatic
-    });
-  
-    return worker; // Return the initialized worker
+export async function createOCRWorker(
+  onProgress?: (info: { status: string; progress: number }) => void
+) {
+    // 1) Create the worker (optionally with a global logger for progress)
+  const worker = await createWorker('eng', 1, {
+    logger: (info) => {
+      console.log("Global OCR progress:", info.status, info.progress);
+      if (onProgress) {
+        onProgress({ status: info.status, progress: info.progress });
+      }
+    },
+  });
+
+  // 4) Optionally, set Tesseract parameters 
+  //    (similar to the old "setParameters" call)
+  await worker.setParameters({
+    tessedit_pageseg_mode: PSM.AUTO,
+  });
+
+  // 5) Return the fully-initialized worker
+  return worker;
 }
-
-// async function setupWorker() {
-//   const worker = await Tesseract.createWorker("eng", 1, {
-//     logger: (info) => console.log(info), // Logs OCR progress
-//     langPath: "https://tessdata.projectnaptha.com/4.0.0", // Path for language data
-//     workerPath: "https://cdn.jsdelivr.net/npm/tesseract.js@2.1.1/dist/worker.min.js", // Worker script path
-//     corePath: "https://cdn.jsdelivr.net/npm/tesseract.js-core@2.1.1/tesseract-core.wasm.js", // Core WASM path
-//     gzip: true, // Use gzipped trained data
-//   });
-
-//   await worker.load();
-//   await worker.setParameters({
-//     tessedit_pageseg_mode: PSM.AUTO,
-//   });
-
-//   return worker;
-// }
 
 // This will take a worker instance and the image and console log the text.
 export async function recognizeImage(worker: Worker, image: string | File | Blob): Promise<void> {
@@ -42,7 +36,7 @@ export async function recognizeImage(worker: Worker, image: string | File | Blob
     }
 }
 
-export async function convertPdfPageToImage(pdfFile: string, pageNumber: number, scale: number = 2): Promise<{ image: string; viewport: pdfjs.PageViewport }> {
+export async function convertPdfPageToImage(pdfFile: string, pageNumber: number, scale: number = 1): Promise<{ image: string; viewport: pdfjs.Viewport }> {
     try {
       // Load the PDF file
       const loadingTask = pdfjs.getDocument(pdfFile);
@@ -81,42 +75,6 @@ export async function convertPdfPageToImage(pdfFile: string, pageNumber: number,
     }
   }
   
-
-// export async function convertPdfPageToImage( pdfFile: string, pageNumber: number, scale: number = 2) : Promise<string> {
-//     try {
-//         // Load the PDF file using pdf.js
-//         const loadingTask = pdfjs.getDocument(pdfFile);
-//         const pdf = await loadingTask.promise;
-    
-//         // Get the specified page
-//         const page = await pdf.getPage(pageNumber);
-    
-//         // Render the page to a canvas
-//         const viewport = page.getViewport({ scale });
-//         const canvas = document.createElement("canvas");
-//         const context = canvas.getContext("2d");
-    
-//         if (!context) {
-//           throw new Error("Failed to get canvas 2D context");
-//         }
-    
-//         canvas.width = viewport.width;
-//         canvas.height = viewport.height;
-    
-//         const renderContext = {
-//           canvasContext: context,
-//           viewport,
-//         };
-//         await page.render(renderContext).promise;
-    
-//         // Convert the canvas to a data URL (image)
-//         return canvas.toDataURL("image/png");
-//       } catch (error) {
-//         console.error("Error during PDF to image conversion:", error);
-//         throw error; // Rethrow the error for the calling function to handle
-//       }
-//     }
-
 export async function performOCR(
     worker: Worker,
     pdfFile: string,
@@ -209,7 +167,7 @@ export async function performOCR(
     };
   }
   
-export async function performOCRAndDrawBoundingBoxes(worker: Worker, pdfFile: string, pageNumber: number , canvasId: string, paperSize: string) {
+export async function performOCRAndDrawBoundingBoxes(worker: Worker, pdfFile: string, pageNumber: number , canvasId: string, paperSize: string, boundingBoxLevel: "symbol" | "word" | "line" | "paragraph"): Promise<void> {
    // Convert the PDF Page to an image using the helper function
    try {
     // Convert the PDF page to an image using the helper function
@@ -225,6 +183,7 @@ export async function performOCRAndDrawBoundingBoxes(worker: Worker, pdfFile: st
     
     // Perform OCR with bounding box output enabled
     const { data } = await worker.recognize(image, {}, { box: true });
+     // Using Tesseract's built-in event mechanism:
     console.log("Full OCR Data:", data);
 
     // Extract bounding box data
@@ -315,9 +274,9 @@ export async function performOCRAndDrawBoundingBoxes(worker: Worker, pdfFile: st
     // Clear the canvas
     context.clearRect(0, 0, canvas.width, canvas.height);
 
-     // Flip the canvas vertically
-    context.translate(0, canvas.height); // Move the origin to the bottom-left
-    context.scale(1, -1); // Flip the Y-axis
+    //  // Flip the canvas vertically
+    // context.translate(0, canvas.height); // Move the origin to the bottom-left
+    // context.scale(1, -1); // Flip the Y-axis
   
     // Set bounding box style
     context.strokeStyle = "red"; // Red border for bounding boxes
@@ -333,8 +292,20 @@ export async function performOCRAndDrawBoundingBoxes(worker: Worker, pdfFile: st
       const width = x1 - x0;
       const height = y1 - y0;
   
-      // Draw rectangle
+      // Draw the background for the bounding box
+      context.fillStyle = "rgba(255, 255, 150, 0.5)"; // Light yellow background with transparency
+      context.fillRect(x0, y0, width, height);
+
+      // Draw the border for the bounding box
       context.strokeRect(x0, y0, width, height);
+
+      // Draw text inside the bounding box
+      context.fillStyle = "black"; // Reset the text color
+      context.textBaseline = "middle"; // Align text to the middle vertically
+      context.textAlign = "center"; // Align text to the center horizontally
+      const textX = x0 + width / 2; // Center horizontally in the bounding box
+      const textY = y0 + height / 2; // Center vertically in the bounding box
+      context.fillText(String(text), textX, textY, width); // Draw the text inside the box, with wrapping
 
     });
   }
