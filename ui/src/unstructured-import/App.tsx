@@ -214,6 +214,40 @@ const PdfAnnotationTool: React.FC = () => {
     });
   };
 
+  const handleRemovePDF = () => {
+    if (!pdfFile) return;
+  
+    // Step 1: Are you sure you want to remove the PDF from the viewer?
+    const confirmRemove = window.confirm("Are you sure you want to remove this PDF?");
+    if (!confirmRemove) return;
+  
+    // Step 2: Do you also want to delete bounding-box data from localStorage?
+    const deleteData = window.confirm(
+      "Do you also want to DELETE all bounding-box data for this PDF from localStorage?"
+    );
+  
+    if (deleteData) {
+      // Remove all localStorage keys matching `BBOX::...pdfFile...`
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(`BBOX::${pdfFile}`)) {
+          localStorage.removeItem(key);
+        }
+      }
+    }
+  
+    // Finally, clear your state so the PDF is removed from view
+    setPdfFile(null);
+    setExtractedText("");
+    setChunks([]);
+    setPromptResults([]);
+    setBoundingBoxes([]);
+    setNumPages(0);
+    setCurrentPage(1);
+    // Optionally reset boundingBoxLevel or other states if you want
+  };
+  
+
   const zoomIn = () => setZoomLevel((prev) => Math.min(prev + 0.25, 3.0));
   const zoomOut = () => setZoomLevel((prev) => Math.max(prev - 0.25, 0.5));
 
@@ -355,7 +389,7 @@ const PdfAnnotationTool: React.FC = () => {
               </button>
             </div>
             {/* Zoom controls */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 mr-20 border border-gray-600 ">
               <button
                 onClick={zoomOut}
                 className="bg-green-500 px-3 py-1 rounded disabled:bg-gray-500"
@@ -371,6 +405,15 @@ const PdfAnnotationTool: React.FC = () => {
               </button>
             </div>
           </div>
+
+          {pdfFile && (
+      <button
+        onClick={handleRemovePDF}
+        className="absolute top-2 right-2 bg-red-500 text-white px-2 py-1 rounded"
+      >
+        X
+      </button>
+    )}
 
          {/* PDF Viewer */}
 <div className="flex-1 overflow-auto flex justify-center items-center">

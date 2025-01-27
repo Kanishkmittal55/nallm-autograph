@@ -248,7 +248,7 @@ export function makeBBoxStorageKey(
       const height = y1 - y0;
   
       // Draw the background for the bounding box
-      context.fillStyle = "rgba(255, 255, 150, 0.5)"; // Light yellow background with transparency
+      context.fillStyle = "rgba(255, 255, 150, 0.8)"; // Light yellow background with transparency
       context.fillRect(x0, y0, width, height);
 
       // Draw the border for the bounding box
