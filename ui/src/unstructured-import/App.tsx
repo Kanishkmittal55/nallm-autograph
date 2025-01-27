@@ -13,8 +13,11 @@ import { chunkText } from "./utils/chunk-utils";
 import { overlayBoundingBoxes } from "./utils/bounding-box-utils"; 
 import { 
   createOCRWorker,
-  performOCR,
-  performOCRAndDrawBoundingBoxes 
+  drawBoundingBoxes,
+  getBBoxesIndex,
+  makeBBoxStorageKey,
+  performOCRAndDrawBoundingBoxes, 
+  setBBoxesIndex
 } from "./utils/ocr-util";
 
 // Dynamically import PDF.js worker
@@ -48,7 +51,8 @@ const PdfAnnotationTool: React.FC = () => {
 
   // OCR control settings
   const [processAllPages, setProcessAllPages] = useState<boolean>(false);
-  const [boundingBoxPages, setBoundingBoxPages] = useState<boolean>(false);
+  const [showBoundingBoxes, setShowBoundingBoxes] = useState<boolean>(true); 
+  const [processedConfigs, setProcessedConfigs] = useState<Set<string>>(new Set()); // a particular PDF+level has been processed
   const [ocrLoading, setOcrLoading] = useState<boolean>(false);
 
   // NEW/CHANGED: Let the user pick which segmentation level to use when drawing boxes
@@ -96,15 +100,15 @@ const PdfAnnotationTool: React.FC = () => {
   // Simple progress bar UI
   const ProgressBar: React.FC = () => {
     return (
-      <div className="mt-2 w-full bg-gray-600 h-2 rounded">
+      <div className="mt-2 w-full bg-gray-600 h-10 rounded">
         <div
           className="bg-blue-400 h-2 rounded"
           style={{
             width: `${Math.floor(ocrProgress.progress * 100)}%`
           }}
         />
-        <p className="text-xs mt-1">
-          Status: {ocrProgress.status} ({Math.round(ocrProgress.progress * 100)}%)
+        <p className="text-xs mt-3">
+          Status: OCR Discovery ({Math.round(ocrProgress.progress * 100)}%)
         </p>
       </div>
     );
@@ -126,60 +130,44 @@ const PdfAnnotationTool: React.FC = () => {
     }
   };
 
-  const handleOCRProcessing = async () => {
-    if (!pdfFile || !ocrWorker) return;
-    setOcrLoading(true);
-    try {
-      const allChunks: string[] = [];
-
-      if (processAllPages) {
-        // Process all pages
-        for (let page = 1; page <= numPages; page++) {
-          const text = await performOCR(ocrWorker, pdfFile, page);
-          allChunks.push(...chunkText(text, chunkSize));
-        }
-      } else {
-        // Process current page
-        const text = await performOCR(ocrWorker, pdfFile, currentPage);
-        allChunks.push(...chunkText(text, chunkSize));
-      }
-
-      setChunks(allChunks);
-    } catch (error) {
-      console.error("Error during OCR processing:", error);
-    } finally {
-      setOcrLoading(false);
-    }
-  };
-
   const handleBoundingBox = async () => {
     if (!pdfFile || !ocrWorker) return;
+    
     setOcrLoading(true);
     setOcrProgress({ progress: 0, status: "starting bounding boxes..." });
 
     try {
-      if (boundingBoxPages) {
-        for (let page = 1; page <= numPages; page++) {
-          await performOCRAndDrawBoundingBoxes(
-            ocrWorker,
-            pdfFile,
-            page,
-            "canvasId",
-            paperSize,
-            boundingBoxLevel,
-          );
-        }
-      } else {
+        // 2) If "Process All Pages" is on, loop all; else just currentPage
+        const pagesToProcess = processAllPages ? [...Array(numPages).keys()].map(i => i + 1) : [currentPage];
+
+        for (const pageNum of pagesToProcess) {
+          // 1) Check if we already have bounding boxes for this PDF + page + level
+          const key = makeBBoxStorageKey(pdfFile, pageNum, boundingBoxLevel);
+          const existing = localStorage.getItem(key);
+          if (existing) {
+            // Already processed => show alert, automatically draw from localStorage
+            alert(`Page ${pageNum} is already processed at level: ${boundingBoxLevel}. Loading from localStorage...`);
+    
+            // Optionally draw them right now, so user sees it:
+            const boxes = JSON.parse(existing);
+            drawBoundingBoxes("canvasId", boxes);
+            continue; // skip re-processing
+          }
+
+         // 2) If not in localStorage, do the actual OCR + bounding box routine
         await performOCRAndDrawBoundingBoxes(
           ocrWorker,
           pdfFile,
-          currentPage,
+          pageNum,
           "canvasId",
           paperSize,
-          boundingBoxLevel,
+          boundingBoxLevel
         );
       }
-    } catch (error) {
+
+      setOcrProgress({ progress: 1, status: "done" });
+        }
+    catch (error) {
       console.error("Bounding box error:", error);
     } finally {
       setOcrLoading(false);
@@ -191,49 +179,6 @@ const PdfAnnotationTool: React.FC = () => {
   };
   const handlePrevPage = () => {
     if (currentPage > 1) setCurrentPage((p) => p - 1);
-  };
-
-  // Example "default" extraction
-  const handleExtract = async () => {
-    if (!pdfFile) return;
-    setIsLoading(true);
-
-    try {
-      let text = "";
-      let boxes: any[] = [];
-
-      if (selectedTool === "pdfplumber") {
-        const result = await extractTextWithPlumber(pdfFile);
-        text = result.text;
-        boxes = result.boundingBoxes || [];
-      } else if (selectedTool === "ocr") {
-        const ocrResult = await extractTextWithOCR(pdfFile);
-        text = ocrResult.text;
-        boxes = ocrResult.boundingBoxes || [];
-      } else {
-        text = await getPdfjsExtractedText(pdfFile);
-      }
-
-      setExtractedText(text);
-      setBoundingBoxes(boxes);
-    } catch (err) {
-      console.error("Error extracting text:", err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Example helper function for "default" extraction using pdf.js
-  const getPdfjsExtractedText = async (fileUrl: string) => {
-    const loadingTask = pdfjs.getDocument(fileUrl);
-    const pdf = await loadingTask.promise;
-    let combinedText = "";
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      combinedText += content.items.map((item: any) => item.str).join(" ") + "\n";
-    }
-    return combinedText;
   };
 
   // Chunk the text in memory
@@ -295,7 +240,6 @@ const PdfAnnotationTool: React.FC = () => {
               setSelectedTool={setSelectedTool}
               chunkSize={chunkSize}
               setChunkSize={setChunkSize}
-              onExtract={handleExtract}
               onChunkify={handleChunkify}
               isLoading={isLoading}
             />
@@ -304,6 +248,7 @@ const PdfAnnotationTool: React.FC = () => {
               <div className="bg-gray-700 p-4 rounded mt-4">
                 <h3 className="text-sm font-bold text-blue-400 mb-2">OCR Controls</h3>
 
+                <div className="my-4">
                 <div className="flex items-center gap-4">
                   <span className="text-gray-200 text-sm">Process All Pages</span>
                   <Switch
@@ -312,32 +257,25 @@ const PdfAnnotationTool: React.FC = () => {
                     onChange={() => setProcessAllPages(!processAllPages)}
                   />
                   <button
-                    onClick={handleOCRProcessing}
-                    className="mt-4 px-4 py-2 bg-blue-500 rounded text-sm disabled:bg-gray-500"
+                    onClick={handleBoundingBox}
+                    className="mt-2 px-4 py-2 bg-green-500 rounded text-sm disabled:bg-gray-500"
                     disabled={ocrLoading || !pdfFile}
                   >
                     {ocrLoading ? "Processing..." : "Go"}
                   </button>
                 </div>
+              </div>
 
-                {/* Make Bounding Boxes */}
-                <div className="mt-6">
-                  <div className="flex items-center gap-4">
-                    <span className="text-gray-200 text-sm">Make Bounding Boxes</span>
-                    <Switch
-                      label=""
-                      checked={boundingBoxPages}
-                      onChange={() => setBoundingBoxPages(!boundingBoxPages)}
-                    />
-                    <button
-                      onClick={handleBoundingBox}
-                      className="mt-4 px-4 py-2 bg-green-500 rounded text-sm disabled:bg-gray-500"
-                      disabled={ocrLoading || !pdfFile}
-                    >
-                      {ocrLoading ? "Processing..." : "Go"}
-                    </button>
-                  </div>
+              <div className="my-4">
+                <div className="flex items-center gap-4">
+                  <span className="text-gray-200 text-sm">Show Bounding Boxes</span>
+                  <Switch
+                    label=""
+                    checked={showBoundingBoxes}
+                    onChange={() => setShowBoundingBoxes(!showBoundingBoxes)}
+                  />
                 </div>
+              </div>
 
                 {/** NEW/CHANGED: A small radio-group or dropdown for boundingBoxLevel */}
                 <div className="mt-4">
@@ -434,39 +372,49 @@ const PdfAnnotationTool: React.FC = () => {
             </div>
           </div>
 
-          {/* PDF Viewer */}
-          <div className="flex-1 overflow-auto flex justify-center items-center">
-            {pdfFile ? (
-              <div
-                style={{
-                  width: paperSize === "Auto" ? "100%" : paperSize === "A4" ? "595px" : "1000px",
-                  transform: `scale(${zoomLevel})`,
-                  transformOrigin: "center",
-                  position: "relative",
-                }}
-                className="bg-gray-200 p-4"
+         {/* PDF Viewer */}
+<div className="flex-1 overflow-auto flex justify-center items-center">
+  {pdfFile ? (
+    <div
+      style={{ 
+        width: paperSize === "Auto" ? "100%" : paperSize === "A4" ? "595px" : "1000px",
+        transform: `scale(${zoomLevel})`,
+        transformOrigin: "center",
+        position: "relative", 
+      }}
+      className="bg-gray-200 p-4"
+    >
+              <Document
+                file={pdfFile}
+                onLoadSuccess={onDocumentLoadSuccess}
+                className="flex-1 overflow-auto"
               >
-                <Document
-                  file={pdfFile}
-                  onLoadSuccess={onDocumentLoadSuccess}
-                  className="flex-1 overflow-auto"
-                >
-                  <Page
-                    pageNumber={currentPage}
-                    renderAnnotationLayer
-                    renderTextLayer
-                    onRenderSuccess={(page) => {
-                      // Match canvas to PDF dimensions after page render
-                      const canvas = document.getElementById("canvasId") as HTMLCanvasElement;
-                      if (canvas) {
-                        const viewport = page.getViewport({ scale: zoomLevel });
-                        canvas.width = viewport.width;
-                        canvas.height = viewport.height;
-                        canvas.style.width = `${viewport.width}px`;
-                        canvas.style.height = `${viewport.height}px`;
+                <Page
+                  pageNumber={currentPage}
+                  renderAnnotationLayer
+                  renderTextLayer
+                  onRenderSuccess={(page) => {
+                    const canvas = document.getElementById("canvasId") as HTMLCanvasElement;
+                    if (canvas) {
+                      const viewport = page.getViewport({ scale: zoomLevel });
+                      canvas.width = viewport.width;
+                      canvas.height = viewport.height;
+                      canvas.style.width = `${viewport.width}px`;
+                      canvas.style.height = `${viewport.height}px`;
+                    }
+                    // If "showBoundingBoxes" is ON, load bounding boxes from localStorage if they exist
+                    if (showBoundingBoxes && pdfFile) {
+                      const key = makeBBoxStorageKey(pdfFile, currentPage, boundingBoxLevel);
+                      const saved = localStorage.getItem(key);
+
+                      if (saved) {
+                        const boxes = JSON.parse(saved);
+                        drawBoundingBoxes("canvasId", boxes);
                       }
-                    }}
-                  />
+                    }
+                  }}
+                />
+
                 </Document>
 
                 {/* Add the Canvas Element */}

@@ -1,6 +1,34 @@
 import Tesseract, { PSM , Worker, Block, createWorker} from "tesseract.js";
 import * as pdfjs from "pdfjs-dist";
 
+// 5 lines above for context
+export interface BBoxesIndex {
+  [pdfFile: string]: {
+    [level: string]: {
+      processedAllPages: boolean;
+      pages: {
+        [pageNum: string]: Array<{
+          text: string;
+          bbox: { x0: number; y0: number; x1: number; y1: number };
+        }>;
+      };
+    };
+  };
+}
+
+// Utility to read BBOX_INDEX from localStorage (or return an empty object)
+export function getBBoxesIndex(): BBoxesIndex {
+  const raw = localStorage.getItem("BBOX_INDEX");
+  if (!raw) return {};
+  return JSON.parse(raw);
+}
+
+// Utility to save BBOX_INDEX to localStorage
+export function setBBoxesIndex(index: BBoxesIndex) {
+  localStorage.setItem("BBOX_INDEX", JSON.stringify(index));
+}
+
+
 
 export async function createOCRWorker(
   onProgress?: (info: { status: string; progress: number }) => void
@@ -25,18 +53,7 @@ export async function createOCRWorker(
   return worker;
 }
 
-// This will take a worker instance and the image and console log the text.
-export async function recognizeImage(worker: Worker, image: string | File | Blob): Promise<void> {
-    try {
-      console.log("Processing image...");
-      const { data: { text },} = await worker.recognize(image); // Perform OCR on the image
-      console.log("Recognized Text:", text);
-    } catch (error) {
-      console.error("Error during OCR:", error);
-    }
-}
-
-export async function convertPdfPageToImage(pdfFile: string, pageNumber: number, scale: number = 1): Promise<{ image: string; viewport: pdfjs.Viewport }> {
+export async function convertPdfPageToImage(pdfFile: string, pageNumber: number, scale: number = 1): Promise<{ image: string; viewport: pdfjs.PageViewport }> {
     try {
       // Load the PDF file
       const loadingTask = pdfjs.getDocument(pdfFile);
@@ -74,42 +91,6 @@ export async function convertPdfPageToImage(pdfFile: string, pageNumber: number,
       throw error;
     }
   }
-  
-export async function performOCR(
-    worker: Worker,
-    pdfFile: string,
-    pageNumber: number
-  ): Promise<string> {
-    try {
-      // Convert the PDF Page to an image using the helper function above
-      const { image }  = await convertPdfPageToImage(pdfFile, pageNumber)
-
-      // Perform OCR using the worker
-      console.log(`Performing OCR on page ${pageNumber}...`);
-      const {
-        data: { text },
-      } = await worker.recognize(image);
-  
-      // Transform OCR results into bounding boxes
-    //   const boundingBoxes = text.map((word: any) => ({
-    //     text: word.text,
-    //     x: word.bbox.x0,
-    //     y: word.bbox.y0,
-    //     width: word.bbox.x1 - word.bbox.x0,
-    //     height: word.bbox.y1 - word.bbox.y0,
-    //   }));
-  
-    //   return boundingBoxes;
-    // Log the recognized text
-    console.log("Recognized Text:", text);
-
-    // Return the recognized text
-      return text;
-    } catch (error) {
-      console.error("Error during OCR processing:", error);
-      return "";
-    }
-  }
 
   const adjustCanvasSizeForPaper = (canvas: HTMLCanvasElement, viewport: pdfjs.PageViewport, paperSize: string) => {
     const { width, height } = viewport;
@@ -129,43 +110,7 @@ export async function performOCR(
       canvas.height = height;
     }
   };
-  
 
-  function scaleBoundingBoxes(
-    boxes: Array<{ text: string; bbox: { x0: number; y0: number; x1: number; y1: number } }>,
-    canvasWidth: number,
-    canvasHeight: number,
-    viewportWidth: number,
-    viewportHeight: number
-  ) {
-    const xScale = canvasWidth / viewportWidth;
-    const yScale = canvasHeight / viewportHeight;
-  
-    return boxes.map(({ text, bbox }) => ({
-      text,
-      bbox: {
-        x0: bbox.x0 * xScale,
-        y0: bbox.y0 * yScale,
-        x1: bbox.x1 * xScale,
-        y1: bbox.y1 * yScale,
-      },
-    }));
-  }
-
-  function refineBoundingBox(
-    bbox: { x0: number; y0: number; x1: number; y1: number },
-    shrinkFactor: number
-  ) {
-    const width = bbox.x1 - bbox.x0;
-    const height = bbox.y1 - bbox.y0;
-  
-    return {
-      x0: bbox.x0 + width * shrinkFactor,
-      y0: bbox.y0 + height * shrinkFactor,
-      x1: bbox.x1 - width * shrinkFactor,
-      y1: bbox.y1 - height * shrinkFactor,
-    };
-  }
   
 export async function performOCRAndDrawBoundingBoxes(worker: Worker, pdfFile: string, pageNumber: number , canvasId: string, paperSize: string, boundingBoxLevel: "symbol" | "word" | "line" | "paragraph"): Promise<void> {
    // Convert the PDF Page to an image using the helper function
@@ -182,66 +127,67 @@ export async function performOCRAndDrawBoundingBoxes(worker: Worker, pdfFile: st
     adjustCanvasSizeForPaper(canvas, viewport, paperSize); // Pass the `selectedPaperSize` from state
     
     // Perform OCR with bounding box output enabled
-    const { data } = await worker.recognize(image, {}, { box: true });
-     // Using Tesseract's built-in event mechanism:
+    const { data } = await worker.recognize(image, {}, { blocks: true });
+
     console.log("Full OCR Data:", data);
 
-    // Extract bounding box data
-    const { box } = data;
-
-    if (!box) {
-    console.warn("No bounding boxes detected.");
-    return;
+    let boundingBoxes: Array<{
+      text: string;
+      bbox: { x0: number; y0: number; x1: number; y1: number };
+    }> = [];
+    
+    if (!data.blocks) {
+      console.warn("No blocks found in data.");
+      return;
     }
+    
+    if (boundingBoxLevel === "paragraph") {
+      // paragraphs => each block may have multiple paragraphs
+      const paragraphs = data.blocks.flatMap((block) => block.paragraphs);
+      boundingBoxes = paragraphs.map((para) => ({
+        text: para.text,
+        bbox: para.bbox, // { x0, y0, x1, y1 }
+      }));
+    } else if (boundingBoxLevel === "line") {
+      // lines => flatten blocks->paragraphs->lines
+      const lines = data.blocks.flatMap((block) =>
+        block.paragraphs.flatMap((p) => p.lines)
+      );
+      boundingBoxes = lines.map((line) => ({
+        text: line.text,
+        bbox: line.bbox,
+      }));
+    } else if (boundingBoxLevel === "word") {
+      // words => flatten blocks->paragraphs->lines->words
+      const words = data.blocks.flatMap((block) =>
+        block.paragraphs.flatMap((p) =>
+          p.lines.flatMap((l) => l.words)
+        )
+      );
+      boundingBoxes = words.map((w) => ({
+        text: w.text,
+        bbox: w.bbox,
+      }));
+    } else {
+      // symbols => flatten blocks->paragraphs->lines->words->symbols
+      const symbols = data.blocks.flatMap((block) =>
+        block.paragraphs.flatMap((p) =>
+          p.lines.flatMap((l) =>
+            l.words.flatMap((w) => w.symbols)
+          )
+        )
+      );
+      boundingBoxes = symbols.map((s) => ({
+        text: s.text,
+        bbox: s.bbox,
+      }));
+    }
+    console.log("Flattened boundingBoxes:", boundingBoxes);
 
-    // Convert `box` into an iterable array (if it’s not already one)
-    let boundingBoxes: Array<{ text: string; bbox: { x0: number; y0: number; x1: number; y1: number } }> = [];
-
-        if (typeof box === "string") {
-            console.log("The type of box is :" , typeof box)
-            // If `box` is a string, parse it (example for HOCR format)
-            const lines = box.split("\n");
-            boundingBoxes = lines.map((line) => {
-                const [text, x0, y0, x1, y1] = line.split(" ");
-                return {
-                text: text || "",
-                bbox: {
-                    x0: parseFloat(x0),
-                    y0: parseFloat(y0),
-                    x1: parseFloat(x1),
-                    y1: parseFloat(y1),
-                },
-                };
-        });
-        } else if (typeof box === "object") {
-            // If `box` is an object, transform it into an array
-            boundingBoxes = Object.entries(box).map(([key, value]: [string, any]) => ({
-                text: key,
-                bbox: {
-                x0: parseFloat(value.x0),
-                y0: parseFloat(value.y0),
-                x1: parseFloat(value.x1),
-                y1: parseFloat(value.y1),
-                },
-        }));
-        } else {
-            console.warn("Unsupported box format:", box);
-        return;
-        }
-
-    // // Scale bounding boxes to fit the canvas
-    // boundingBoxes = scaleBoundingBoxes(
-    //     boundingBoxes,
-    //     canvas.width,
-    //     canvas.height,
-    //     viewport.width,
-    //     viewport.height
-    //   );
-
-    // boundingBoxes = boundingBoxes.map(({ text, bbox }) => ({
-    // text,
-    // bbox: refineBoundingBox(bbox, 0.1), // Shrink by 10%
-    // }));
+    // (A) Store them in localStorage with a simpler key:
+    const key = makeBBoxStorageKey(pdfFile, pageNumber, boundingBoxLevel);
+    localStorage.setItem(key, JSON.stringify(boundingBoxes));
+    
 
     // Now `boundingBoxes` is iterable and in the correct format
     console.log("Parsed bounding boxes:", boundingBoxes);
@@ -256,7 +202,20 @@ export async function performOCRAndDrawBoundingBoxes(worker: Worker, pdfFile: st
 
   }
 
-  function drawBoundingBoxes(
+// Put this next to your other exports in ocr-util.ts
+
+export function makeBBoxStorageKey(
+  pdfFile: string,
+  pageNumber: number,
+  boundingBoxLevel: string
+): string {
+  // Example: "BBOX::blob:http://localhost:3000/abc::page5::word"
+  return `BBOX::${pdfFile}::page${pageNumber}::${boundingBoxLevel}`;
+}
+
+  
+
+  export function drawBoundingBoxes(
     canvasId: string,
     boxes: { text: string | number; bbox: { x0: string | number; y0: string | number; x1: string | number; y1: string | number } }[]
   ): void {
@@ -273,10 +232,6 @@ export async function performOCRAndDrawBoundingBoxes(worker: Worker, pdfFile: st
   
     // Clear the canvas
     context.clearRect(0, 0, canvas.width, canvas.height);
-
-    //  // Flip the canvas vertically
-    // context.translate(0, canvas.height); // Move the origin to the bottom-left
-    // context.scale(1, -1); // Flip the Y-axis
   
     // Set bounding box style
     context.strokeStyle = "red"; // Red border for bounding boxes

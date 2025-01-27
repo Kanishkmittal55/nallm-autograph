@@ -5,7 +5,6 @@ interface ToolboxProps {
   setSelectedTool: (tool: "pdfplumber" | "ocr" | "default") => void;
   chunkSize: number;
   setChunkSize: (size: number) => void;
-  onExtract: () => void;
   onChunkify: () => void;
   isLoading: boolean;
 }
@@ -15,7 +14,6 @@ export const Toolbox: React.FC<ToolboxProps> = ({
   setSelectedTool,
   chunkSize,
   setChunkSize,
-  onExtract,
   onChunkify,
   isLoading,
 }) => {
@@ -31,16 +29,7 @@ export const Toolbox: React.FC<ToolboxProps> = ({
             checked={selectedTool === "default"}
             onChange={() => setSelectedTool("default")}
           />
-          Default (pdf.js Text)
-        </label>
-        <label className="flex items-center gap-2">
-          <input
-            type="radio"
-            value="pdfplumber"
-            checked={selectedTool === "pdfplumber"}
-            onChange={() => setSelectedTool("pdfplumber")}
-          />
-          PDFPlumber
+          Pdf.js ( Regex )
         </label>
         <label className="flex items-center gap-2">
           <input
@@ -65,16 +54,6 @@ export const Toolbox: React.FC<ToolboxProps> = ({
       </label>
 
       {/* Buttons */}
-      <button
-        onClick={onExtract}
-        disabled={isLoading}
-        className={`w-full mb-2 px-4 py-2 rounded ${
-          isLoading ? "bg-gray-500" : "bg-green-500 hover:bg-green-600"
-        }`}
-      >
-        {isLoading ? "Extracting..." : "Extract Text"}
-      </button>
-
       <button
         onClick={onChunkify}
         disabled={isLoading}
