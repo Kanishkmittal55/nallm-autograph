@@ -71,6 +71,9 @@ const PdfAnnotationTool: React.FC = () => {
   // Results from iterative prompt
   const [promptResults, setPromptResults] = useState<string[]>([]);
 
+  // For handling merges, we store the index of the “source” chunk. If null, we have no source yet.
+  const [selectedMergeIndex, setSelectedMergeIndex] = useState<number | null>(null);
+
   /** ======================
    *  Lifecycle / Setup
    *  ====================== */
@@ -130,6 +133,50 @@ const PdfAnnotationTool: React.FC = () => {
     }
   };
 
+  // (1) Merge All
+const handleMergeAll = () => {
+  if (chunks.length <= 1) {
+    alert("Not enough chunks to merge!");
+    return;
+  }
+  // Concatenate all chunk strings, put them in a single array item
+  const merged = chunks.join("\n");
+  setChunks([merged]);
+};
+
+// (2) Delete All
+const handleDeleteAll = () => {
+  if (!chunks.length) {
+    alert("No chunks to delete!");
+    return;
+  }
+  const confirmDel = window.confirm("Really delete ALL chunks?");
+  if (confirmDel) {
+    setChunks([]);
+  }
+};
+
+// (3) Reverse Order
+const handleReverse = () => {
+  if (chunks.length < 2) return; // no need if 0 or 1 chunk
+  setChunks((prev) => [...prev].reverse());
+};
+
+// (4) Shuffle
+const handleShuffle = () => {
+  if (chunks.length < 2) return;
+  setChunks((prev) => {
+    const arr = [...prev];
+    // simple in-place Fisher-Yates shuffle
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  });
+};
+
+
   const handleBoundingBox = async () => {
     if (!pdfFile || !ocrWorker) return;
     
@@ -137,7 +184,7 @@ const PdfAnnotationTool: React.FC = () => {
     setOcrProgress({ progress: 0, status: "starting bounding boxes..." });
 
     try {
-        // 2) If "Process All Pages" is on, loop all; else just currentPage
+        // If "Process All Pages" is on, loop all; else just currentPage
         const pagesToProcess = processAllPages ? [...Array(numPages).keys()].map(i => i + 1) : [currentPage];
 
         for (const pageNum of pagesToProcess) {
@@ -152,17 +199,33 @@ const PdfAnnotationTool: React.FC = () => {
             const boxes = JSON.parse(existing);
             drawBoundingBoxes("canvasId", boxes);
             continue; // skip re-processing
+          } else {
+             // 2) If not in localStorage, do the actual OCR + bounding box routine
+              await performOCRAndDrawBoundingBoxes(
+                ocrWorker,
+                pdfFile,
+                pageNum,
+                "canvasId",
+                paperSize,
+                boundingBoxLevel
+              );
           }
 
-         // 2) If not in localStorage, do the actual OCR + bounding box routine
-        await performOCRAndDrawBoundingBoxes(
-          ocrWorker,
-          pdfFile,
-          pageNum,
-          "canvasId",
-          paperSize,
-          boundingBoxLevel
-        );
+
+          // (NEW) If boundingBoxLevel === paragraph, convert those boxes to “chunks”
+        if (boundingBoxLevel === "paragraph") {
+          const paragraphKey = makeBBoxStorageKey(pdfFile, pageNum, "paragraph");
+          const saved = localStorage.getItem(paragraphKey);
+          if (saved) {
+            // Each box is { text, bbox }, we only want the text
+            const boxes = JSON.parse(saved);
+            const newParagraphs = boxes.map((b: any) => b.text);
+            // Add them to the “chunks” on the right
+            setChunks((prev) => [...prev, ...newParagraphs]);
+          }
+        }
+      
+        
       }
 
       setOcrProgress({ progress: 1, status: "done" });
@@ -250,6 +313,62 @@ const PdfAnnotationTool: React.FC = () => {
 
   const zoomIn = () => setZoomLevel((prev) => Math.min(prev + 0.25, 3.0));
   const zoomOut = () => setZoomLevel((prev) => Math.max(prev - 0.25, 0.5));
+  
+  // Delete a chunk from the array
+  const handleDeleteChunk = (index: number) => {
+    setChunks((prev) => prev.filter((_, i) => i !== index));
+    // If we were about to merge from or to this chunk, reset the selection
+    if (selectedMergeIndex === index) {
+      setSelectedMergeIndex(null);
+    }
+  };
+
+  /**
+   * Merge logic:
+   * 1) If no chunk is selected yet, store this chunk index as the “source.”
+   * 2) If a source chunk is already selected, then the user’s click is the “destination.”
+   *    => We combine the source chunk text + the destination chunk text,
+   *       remove the source chunk from the list, and clear `selectedMergeIndex`.
+   */
+  const handleMergeChunk = (index: number) => {
+    if (selectedMergeIndex === null) {
+      // First click => set the source chunk
+      setSelectedMergeIndex(index);
+      alert(`Selected chunk #${index + 1} as merge SOURCE. Click "Merge" on another chunk to finalize.`);
+    } else {
+      // Second click => destination
+      const sourceIndex = selectedMergeIndex;
+      const destIndex = index;
+      if (sourceIndex === destIndex) {
+        alert("Cannot merge a chunk with itself!");
+        return;
+      }
+
+      setChunks((prev) => {
+        // Copy the array
+        const newArr = [...prev];
+
+        // “Source first then destination last”
+        // We’ll append the source text onto the destination chunk
+        newArr[destIndex] = newArr[sourceIndex] + "\n" + newArr[destIndex];
+
+        // Remove the source chunk
+        // But watch indices: if source < dest, removing source first shifts dest’s index by -1
+        if (sourceIndex < destIndex) {
+          newArr.splice(sourceIndex, 1);
+          // The chunk that was at destIndex is now at destIndex - 1
+          return newArr;
+        } else {
+          newArr.splice(sourceIndex, 1);
+          // The chunk after removal is still at the same index if source > dest
+          return newArr;
+        }
+      });
+
+      setSelectedMergeIndex(null);
+    }
+  };
+
 
   /** ======================
    *  Render
@@ -295,7 +414,7 @@ const PdfAnnotationTool: React.FC = () => {
                     className="mt-2 px-4 py-2 bg-green-500 rounded text-sm disabled:bg-gray-500"
                     disabled={ocrLoading || !pdfFile}
                   >
-                    {ocrLoading ? "Processing..." : "Go"}
+                    {ocrLoading ? "Processing..." : "Chunkify"}
                   </button>
                 </div>
               </div>
@@ -439,7 +558,7 @@ const PdfAnnotationTool: React.FC = () => {
                   onRenderSuccess={(page) => {
                     const canvas = document.getElementById("canvasId") as HTMLCanvasElement;
                     if (canvas) {
-                      const viewport = page.getViewport({ scale: zoomLevel });
+                      const viewport = page.getViewport({ scale: 1 });
                       canvas.width = viewport.width;
                       canvas.height = viewport.height;
                       canvas.style.width = `${viewport.width}px`;
@@ -525,10 +644,47 @@ const PdfAnnotationTool: React.FC = () => {
             </button>
           </div>
 
-          {/* Chunk List & Prompt Results */}
+          {/*
+    NEW: "Chunk Controller" with 4 creative options:
+    1) Merge All
+    2) Delete All
+    3) Reverse
+    4) Shuffle
+  */}
+  <div className="mb-2 flex flex-wrap gap-2">
+    <button
+      onClick={handleMergeAll}
+      className="px-3 py-1 bg-purple-600 rounded text-white text-sm"
+    >
+      Merge All
+    </button>
+    <button
+      onClick={handleDeleteAll}
+      className="px-3 py-1 bg-red-600 rounded text-white text-sm"
+    >
+      Delete All
+    </button>
+    <button
+      onClick={handleReverse}
+      className="px-3 py-1 bg-yellow-600 rounded text-white text-sm"
+    >
+      Reverse
+    </button>
+    <button
+      onClick={handleShuffle}
+      className="px-3 py-1 bg-green-600 rounded text-white text-sm"
+    >
+      Shuffle
+    </button>
+  </div>
+
+          {/* The updated ChunkList with Delete & Merge buttons */}
           <ChunkList
             chunks={chunks}
             promptResults={promptResults}
+            onDelete={handleDeleteChunk}
+            onMerge={handleMergeChunk}
+            selectedMergeIndex={selectedMergeIndex}
           />
         </div>
       </Split>

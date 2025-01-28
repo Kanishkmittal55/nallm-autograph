@@ -41,28 +41,6 @@ export const Toolbox: React.FC<ToolboxProps> = ({
           OCR Extraction
         </label>
       </div>
-
-      {/* Chunk Size */}
-      <label className="block mb-2">
-        <span>Chunk Size:</span>
-        <input
-          type="number"
-          value={chunkSize}
-          onChange={(e) => setChunkSize(Number(e.target.value))}
-          className="ml-2 w-20 bg-gray-600 border border-gray-500 rounded px-1"
-        />
-      </label>
-
-      {/* Buttons */}
-      <button
-        onClick={onChunkify}
-        disabled={isLoading}
-        className={`w-full px-4 py-2 rounded ${
-          isLoading ? "bg-gray-500" : "bg-blue-500 hover:bg-blue-600"
-        }`}
-      >
-        Chunkify
-      </button>
     </div>
   );
 };
