@@ -1,0 +1,11 @@
+database = kag
+password = openspg@kag
+uri = neo4j://release-openspg-neo4j:7687
+user - neo4j
+
+Embedding Model - Use open ai model
+
+# Mass 
+Model = deepseek-chat
+base_url = https://api.deepseek.com
+api_key = 655a845baba74914a168013be2f93499

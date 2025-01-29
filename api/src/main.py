@@ -53,7 +53,7 @@ class questionProposalPayload(BaseModel):
 HARD_LIMIT_CONTEXT_RECORDS = 10
 
 neo4j_connection = Neo4jDatabase(
-    host=os.environ.get("NEO4J_URL", "bolt://kg:7687"), # So we need to put the name of the container in case of docker
+    host=os.environ.get("NEO4J_URL", "bolt://kg:7688"), # So we need to put the name of the container in case of docker
     user=os.environ.get("NEO4J_USER", "neo4j"),
     password=os.environ.get("NEO4J_PASS", "your12345"),
     database=os.environ.get("NEO4J_DATABASE", "neo4j"),
@@ -692,7 +692,7 @@ async def root(payload: ImportPayload):
         
 
         # # Save the analysed information in the knowledge graph database 
-        db = Neo4jDatabase(host="bolt://kg:7687", user="neo4j", password="your12345", read_only=False)
+        db = Neo4jDatabase(host="bolt://kg:7688", user="neo4j", password="your12345", read_only=False)
         db.insert_patent_data(response_object)
 
         # # Dummy ingridient insert- 
@@ -736,7 +736,7 @@ async def root(payload: ImportPayload):
     """
     try:        
     
-        db = Neo4jDatabase(host="bolt://kg:7687", user="neo4j", password="your12345", read_only=False)
+        db = Neo4jDatabase(host="bolt://kg:7688", user="neo4j", password="your12345", read_only=False)
 
         # Dummy ingredient insert- 
         db.insert_real_world_product(dummy_product_3)

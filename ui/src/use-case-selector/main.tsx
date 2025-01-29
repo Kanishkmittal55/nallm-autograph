@@ -65,7 +65,7 @@ function App() {
               📑 Report Generator
             </a>
             <a
-              href="http://localhost:7474"
+              href="http://localhost:7475"
               target="_blank"
               rel="noopener noreferrer"
               className="neon-button w-full text-center py-2"

@@ -43,7 +43,7 @@ def schema_text(node_props, rel_props, rels) -> str:
 class Neo4jDatabase:
     def __init__(
         self,
-        host: str = "bolt://kg:7687", # For the driver setup we need to use the localhost , only in main.py where we call the docker container running the neo4j we need to use the container name.
+        host: str = "bolt://kg:7688", # For the driver setup we need to use the localhost , only in main.py where we call the docker container running the neo4j we need to use the container name.
         user: str = "neo4j",
         password: str = "your12345",
         database: str = "neo4j",
