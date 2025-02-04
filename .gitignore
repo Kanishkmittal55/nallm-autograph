@@ -19,7 +19,9 @@ ui/node_modules
 kg/
 youtube1/
 
-KAG-master/
+**/node_modules/
+KAG/
+graphrag/ragtest
 
 *.ll
 .npm

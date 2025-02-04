@@ -56,13 +56,13 @@ function App() {
               href="use-cases/unstructured-import/index.html"
               className="neon-button w-full text-center py-2"
             >
-              📂 Unstructured Import
+              📂 Create Knowledge Base
             </a>
             <a
               href="use-cases/report-generation/index.html"
               className="neon-button w-full text-center py-2"
             >
-              📑 Report Generator
+              📑 Auto-correct graph
             </a>
             <a
               href="http://localhost:7475"

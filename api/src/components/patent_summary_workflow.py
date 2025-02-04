@@ -14,9 +14,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent.parent  # Moves up 3 levels to
 load_dotenv(ROOT_DIR / ".env")
 
 # Now retrieve the API key as a string
-api_key = os.getenv("OPENAI_API_KEY")
-if not api_key:
-    raise ValueError("OPENAI_API_KEY is not set in the .env file!")
+api_key = "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"
 
 # Initialize LLM 
 llm = OpenAIChat(

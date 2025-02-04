@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional
 import json
+import traceback
 
 from neo4j import GraphDatabase, exceptions
 
@@ -43,7 +44,7 @@ def schema_text(node_props, rel_props, rels) -> str:
 class Neo4jDatabase:
     def __init__(
         self,
-        host: str = "bolt://kg:7688", # For the driver setup we need to use the localhost , only in main.py where we call the docker container running the neo4j we need to use the container name.
+        host: str = "bolt://127.0.0.1:7687", # For the driver setup we need to use the localhost , only in main.py where we call the docker container running the neo4j we need to use the container name.
         user: str = "neo4j",
         password: str = "your12345",
         database: str = "neo4j",
@@ -69,8 +70,10 @@ class Neo4jDatabase:
             )
         try:
             self.refresh_schema()
-        except:
-            raise ValueError("Missing APOC Core plugin")
+        except Exception as e:
+             print("Error encountered while refreshing the schema. Below is the stack trace:")
+             traceback.print_exc()  # prints a detailed stack trace
+             raise ValueError("Missing APOC Core plugin") from e
 
     @staticmethod
     def _execute_read_only_query(tx, cypher_query: str, params: Optional[Dict] = {}):

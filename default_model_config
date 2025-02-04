@@ -5,7 +5,14 @@ user - neo4j
 
 Embedding Model - Use open ai model
 
-# Mass 
+# "Mass" Options - 
+
 Model = deepseek-chat
 base_url = https://api.deepseek.com
-api_key = 655a845baba74914a168013be2f93499
+api_key = sk-655a845baba74914a168013be2f93499
+
+Model = gpt-4 | gpt-o1
+base_url = https://api.openai.com/v1
+api-key = in .env file
+desc: OpenAI GPT-4 Model
+text-embedding-ada-002

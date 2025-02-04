@@ -20,6 +20,12 @@ import {
   setBBoxesIndex
 } from "./utils/ocr-util";
 
+// Typescript interface or type for chunk data
+interface ChunkData {
+  text: string;
+  isLabel: boolean;
+}
+
 // Dynamically import PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
@@ -38,7 +44,7 @@ const PdfAnnotationTool: React.FC = () => {
 
   // Extracted text and chunks
   const [extractedText, setExtractedText] = useState<string>("");
-  const [chunks, setChunks] = useState<string[]>([]);
+  const [chunks, setChunks] = useState<ChunkData[]>([]);
   const [promptInput, setPromptInput] = useState<string>("");
 
   // UI/UX toggles
@@ -133,15 +139,28 @@ const PdfAnnotationTool: React.FC = () => {
     }
   };
 
+  const handleExportChunks = () => {
+    // We'll store them in localStorage as JSON
+    localStorage.setItem("EXPORTED_CHUNKS", JSON.stringify(chunks));
+    alert("Chunks exported to localStorage!");
+  };
+
   // (1) Merge All
 const handleMergeAll = () => {
   if (chunks.length <= 1) {
     alert("Not enough chunks to merge!");
     return;
   }
-  // Concatenate all chunk strings, put them in a single array item
-  const merged = chunks.join("\n");
-  setChunks([merged]);
+  // Because each chunk is now an object { text, isLabel }, we do:
+  const mergedText = chunks.map((chunk) => chunk.text).join("\n");
+  
+  // Re-create a single chunk object
+  const mergedChunk = {
+    text: mergedText,
+    isLabel: false, // or true if you want it to be a label by default
+  };
+
+  setChunks([mergedChunk]);
 };
 
 // (2) Delete All
@@ -154,26 +173,6 @@ const handleDeleteAll = () => {
   if (confirmDel) {
     setChunks([]);
   }
-};
-
-// (3) Reverse Order
-const handleReverse = () => {
-  if (chunks.length < 2) return; // no need if 0 or 1 chunk
-  setChunks((prev) => [...prev].reverse());
-};
-
-// (4) Shuffle
-const handleShuffle = () => {
-  if (chunks.length < 2) return;
-  setChunks((prev) => {
-    const arr = [...prev];
-    // simple in-place Fisher-Yates shuffle
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-    return arr;
-  });
 };
 
 
@@ -221,7 +220,13 @@ const handleShuffle = () => {
             const boxes = JSON.parse(saved);
             const newParagraphs = boxes.map((b: any) => b.text);
             // Add them to the “chunks” on the right
-            setChunks((prev) => [...prev, ...newParagraphs]);
+            setChunks((prev) => [
+              ...prev,
+              ...newParagraphs.map((p: string) => ({
+                text: p,
+                isLabel: false,
+              })),
+            ]);
           }
         }
       
@@ -250,8 +255,12 @@ const handleShuffle = () => {
       console.warn("No text to chunkify.");
       return;
     }
-    const newChunks = chunkText(extractedText, chunkSize);
-    setChunks(newChunks);
+    const rawChunks = chunkText(extractedText, chunkSize); // returns string[]
+    const chunkObjects = rawChunks.map((c) => ({
+      text: c,
+      isLabel: false,
+    }));
+  setChunks(chunkObjects);
   };
 
   // Run a single prompt iteratively on each chunk
@@ -262,7 +271,7 @@ const handleShuffle = () => {
 
     const results: string[] = [];
     for (const chunk of chunks) {
-      const response = await dummySendPrompt(promptInput, chunk);
+      const response = await dummySendPrompt(promptInput, chunk.text);
       results.push(response);
     }
     setPromptResults(results);
@@ -330,44 +339,176 @@ const handleShuffle = () => {
    *    => We combine the source chunk text + the destination chunk text,
    *       remove the source chunk from the list, and clear `selectedMergeIndex`.
    */
-  const handleMergeChunk = (index: number) => {
+  const handleMergeChunk = (destIndex: number) => {
     if (selectedMergeIndex === null) {
-      // First click => set the source chunk
-      setSelectedMergeIndex(index);
-      alert(`Selected chunk #${index + 1} as merge SOURCE. Click "Merge" on another chunk to finalize.`);
+      // First click => set the source
+      setSelectedMergeIndex(destIndex);
+      alert(`Selected chunk #${destIndex + 1} as merge SOURCE...`);
     } else {
-      // Second click => destination
       const sourceIndex = selectedMergeIndex;
-      const destIndex = index;
+      setSelectedMergeIndex(null);
+  
       if (sourceIndex === destIndex) {
         alert("Cannot merge a chunk with itself!");
         return;
       }
-
-      setChunks((prev) => {
-        // Copy the array
-        const newArr = [...prev];
-
-        // “Source first then destination last”
-        // We’ll append the source text onto the destination chunk
-        newArr[destIndex] = newArr[sourceIndex] + "\n" + newArr[destIndex];
-
-        // Remove the source chunk
-        // But watch indices: if source < dest, removing source first shifts dest’s index by -1
-        if (sourceIndex < destIndex) {
-          newArr.splice(sourceIndex, 1);
-          // The chunk that was at destIndex is now at destIndex - 1
+  
+      const sourceIsLabel = chunks[sourceIndex].isLabel;
+      const destIsLabel = chunks[destIndex].isLabel;
+  
+      // 1) If both are normal or exactly one is label => old single-chunk merge logic
+      if (sourceIsLabel !== destIsLabel || (!sourceIsLabel && !destIsLabel)) {
+        setChunks((prev) => {
+          const newArr = [...prev];
+          newArr[destIndex].text = newArr[sourceIndex].text + "\n" + newArr[destIndex].text;
+          // remove source
+          if (sourceIndex < destIndex) {
+            newArr.splice(sourceIndex, 1);
+          } else {
+            newArr.splice(sourceIndex, 1);
+          }
           return newArr;
-        } else {
-          newArr.splice(sourceIndex, 1);
-          // The chunk after removal is still at the same index if source > dest
-          return newArr;
-        }
-      });
-
-      setSelectedMergeIndex(null);
+        });
+      }
+      // 2) If both are labels => "merge label to label"
+      else if (sourceIsLabel && destIsLabel) {
+        mergeLabelToLabel(sourceIndex, destIndex);
+      }
     }
   };
+  
+
+  const handleToggleLabel = (index: number) => {
+    console.log("Toggling label for chunk index:", index);
+    setChunks((prev) => {
+      const newArr = [...prev];
+      newArr[index].isLabel = !newArr[index].isLabel;
+      console.log("New label state:", newArr[index].isLabel);
+      return newArr;
+    });
+  };
+
+  function mergeLabelToLabel(labelAIndex: number, labelBIndex: number) {
+    setChunks((prev) => {
+      const newArr = [...prev];
+  
+      // Make sure labelAIndex < labelBIndex
+      let start = Math.min(labelAIndex, labelBIndex);
+      let end = Math.max(labelAIndex, labelBIndex);
+  
+      // We'll merge all in-between *non-label* text into labelA's text
+      let mergedText = newArr[start].text;
+      for (let i = start + 1; i < end; i++) {
+        if (!newArr[i].isLabel) {
+          mergedText += "\n" + newArr[i].text;
+        }
+      }
+      newArr[start].text = mergedText;
+  
+      // Then remove those in-between normal chunks
+      for (let i = end - 1; i > start; i--) {
+        if (!newArr[i].isLabel) {
+          newArr.splice(i, 1);
+          end--;
+        }
+      }
+      return newArr;
+    });
+  }
+  
+
+  const handleMergeUntilNextLabel = (labelIndex: number) => {
+    setChunks((prev) => {
+      // We have labelIndex. 
+      // We need to find the next label after labelIndex, or the end if none.
+  
+      let nextLabelIndex: number | null = null;
+  
+      for (let i = labelIndex + 1; i < prev.length; i++) {
+        if (prev[i].isLabel) {
+          nextLabelIndex = i;
+          break;
+        }
+      }
+  
+      // If we found no next label, we might choose to do nothing or merge until end.
+      // We'll show how to merge until end:
+      if (nextLabelIndex === null) {
+        nextLabelIndex = prev.length; 
+        // i.e., pretend a label is at the end
+      }
+  
+      // Merge all in-between *non-label* chunks into the chunk at labelIndex
+      const newArr = [...prev];
+      let mergedText = newArr[labelIndex].text;
+  
+      for (let i = labelIndex + 1; i < nextLabelIndex; i++) {
+        if (!newArr[i].isLabel) {
+          mergedText += "\n" + newArr[i].text;
+        }
+      }
+      newArr[labelIndex].text = mergedText;
+  
+      // Remove those normal chunks from the array
+      // from nextLabelIndex-1 down to labelIndex+1
+      for (let j = nextLabelIndex - 1; j > labelIndex; j--) {
+        if (!newArr[j].isLabel) {
+          newArr.splice(j, 1);
+          nextLabelIndex--;
+        }
+      }
+  
+      return newArr;
+    });
+  };
+  
+  const handleAutoDetect = () => {
+    setChunks((prev) => {
+      const newArr = [...prev];
+  
+      // 2) Mark paragraphs < 60 chars (ignoring whitespace) as label
+      for (let chunk of newArr) {
+        const cleanedText = chunk.text.replace(/\s+/g, "");
+        if (cleanedText.length < 60) {
+          chunk.isLabel = true;
+        }
+      }
+  
+      // 3) Merge consecutive labels
+      let i = 0;
+      while (i < newArr.length) {
+        if (newArr[i].isLabel) {
+          let j = i + 1;
+          while (j < newArr.length && !newArr[j].isLabel) {
+            j++;
+          }
+  
+          let mergedText = newArr[i].text;
+          for (let k = i + 1; k < j; k++) {
+            if (!newArr[k].isLabel) {
+              mergedText += "\n" + newArr[k].text;
+            }
+          }
+          newArr[i].text = mergedText;
+  
+          for (let k = j - 1; k > i; k--) {
+            if (!newArr[k].isLabel) {
+              newArr.splice(k, 1);
+              j--;
+            }
+          }
+          i = j;
+        } else {
+          i++;
+        }
+      }
+      return newArr;
+    });
+  };
+  
+  
+
+  
 
 
   /** ======================
@@ -648,8 +789,8 @@ const handleShuffle = () => {
     NEW: "Chunk Controller" with 4 creative options:
     1) Merge All
     2) Delete All
-    3) Reverse
-    4) Shuffle
+    3) Auto Detect 
+    4) Export Chunks 
   */}
   <div className="mb-2 flex flex-wrap gap-2">
     <button
@@ -664,17 +805,18 @@ const handleShuffle = () => {
     >
       Delete All
     </button>
+
     <button
-      onClick={handleReverse}
+      onClick={handleAutoDetect}
       className="px-3 py-1 bg-yellow-600 rounded text-white text-sm"
     >
-      Reverse
+      Auto Detect
     </button>
     <button
-      onClick={handleShuffle}
-      className="px-3 py-1 bg-green-600 rounded text-white text-sm"
+      onClick={handleExportChunks}
+      className="px-3 py-1 bg-blue-600 rounded text-white text-sm"
     >
-      Shuffle
+      Export Chunks
     </button>
   </div>
 
@@ -684,6 +826,8 @@ const handleShuffle = () => {
             promptResults={promptResults}
             onDelete={handleDeleteChunk}
             onMerge={handleMergeChunk}
+            onToggleLabel={handleToggleLabel}
+            onMergeUntilNextLabel={handleMergeUntilNextLabel} // <-- New callback
             selectedMergeIndex={selectedMergeIndex}
           />
         </div>

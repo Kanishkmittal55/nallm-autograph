@@ -3,7 +3,7 @@ from typing import Optional
 from components.company_report import CompanyReport
 import requests
 import logging
-from components.data_disambiguation import DataDisambiguation
+
 from components.question_proposal_generator import (
     QuestionProposalGenerator,
 )
@@ -33,6 +33,9 @@ from utils.unstructured_data_utils import save_intermediate_results_to_csv, data
 from utils.tokenizers import gpt_tokenizer, llama_tokenizer, regex_tokenizer
 
 
+LIGHTRAG_URL = os.getenv("LIGHTRAG_URL", "http://lightrag:9621")  
+# or "http://localhost:9621" if in dev
+
 class Payload(BaseModel):
     question: str
     api_key: Optional[str]
@@ -53,7 +56,7 @@ class questionProposalPayload(BaseModel):
 HARD_LIMIT_CONTEXT_RECORDS = 10
 
 neo4j_connection = Neo4jDatabase(
-    host=os.environ.get("NEO4J_URL", "bolt://kg:7688"), # So we need to put the name of the container in case of docker
+    host=os.environ.get("NEO4J_URL", "bolt://kg:7687"), # So we need to put the name of the container in case of docker
     user=os.environ.get("NEO4J_USER", "neo4j"),
     password=os.environ.get("NEO4J_PASS", "your12345"),
     database=os.environ.get("NEO4J_DATABASE", "neo4j"),
@@ -61,7 +64,7 @@ neo4j_connection = Neo4jDatabase(
 
 
 # Initialize LLM modules
-openai_api_key = os.environ.get("OPENAI_API_KEY", None)
+openai_api_key = "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"
 
 
 # Define FastAPI endpoint
@@ -78,6 +81,46 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/lightrag/chunks")
+def get_lightrag_chunks():
+    """Proxy to LightRAG /chunks endpoint."""
+    try:
+        resp = requests.get(f"{LIGHTRAG_URL}/chunks")
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"LightRAG error: {str(e)}")
+    
+class ExtractEntitiesPayload(BaseModel):
+    chunk_id: str
+    custom_prompt: str = None
+
+@app.post("/lightrag/chunks/extract_entities")
+def post_extract_entities(payload: ExtractEntitiesPayload):
+    """Proxy to LightRAG /chunks/extract_entities endpoint."""
+    try:
+        data = {
+            "chunk_id": payload.chunk_id
+        }
+        if payload.custom_prompt:
+            data["custom_prompt"] = payload.custom_prompt
+        resp = requests.post(f"{LIGHTRAG_URL}/chunks/extract_entities", json=data)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"LightRAG error: {str(e)}")
+
+@app.get("/lightrag/chunks/{chunk_id}/graph")
+def get_chunk_graph(chunk_id: str):
+    """Proxy sub-graph retrieval."""
+    try:
+        url = f"{LIGHTRAG_URL}/chunks/{chunk_id}/graph"
+        resp = requests.get(url)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"LightRAG error: {str(e)}")
 
 
 @app.post("/questionProposalsForCurrentDb")
@@ -371,32 +414,32 @@ async def root(payload: ImportPayload):
         })
 
         # Step 2: Data Disambiguation
-        disambiguation = DataDisambiguation(llm=llm)
-        disambiguation_result = disambiguation.run(result)
+        # disambiguation = DataDisambiguation(llm=llm)
+        # disambiguation_result = disambiguation.run(result)
 
-        print("Disambiguation result " + str(disambiguation_result))
+        # print("Disambiguation result " + str(disambiguation_result))
 
-        # Log disambiguation result
-        intermediate_results.append({
-            "stage": "Disambiguation",
-            "chunks": [],
-            "data": disambiguation_result
-        })
+        # # Log disambiguation result
+        # intermediate_results.append({
+        #     "stage": "Disambiguation",
+        #     "chunks": [],
+        #     "data": disambiguation_result
+        # })
 
-        # Step 3: Convert Disambiguated Data to Cypher
-        cypher_script = data_to_cypher(disambiguation_result)
+        # # Step 3: Convert Disambiguated Data to Cypher
+        # cypher_script = data_to_cypher(disambiguation_result)
 
-        # Log Cypher Conversion
-        intermediate_results.append({
-            "stage": "Cypher Conversion",
-            "chunks": [],
-            "data": cypher_script
-        })
+        # # Log Cypher Conversion
+        # intermediate_results.append({
+        #     "stage": "Cypher Conversion",
+        #     "chunks": [],
+        #     "data": cypher_script
+        # })
 
-        # Step 4: Save Intermediate Results to CSV
-        save_intermediate_results_to_csv(intermediate_results)
+        # # Step 4: Save Intermediate Results to CSV
+        # save_intermediate_results_to_csv(intermediate_results)
 
-        return {"data": disambiguation_result}
+        # return {"data": disambiguation_result}
 
     except Exception as e:
         print(e)
@@ -1008,9 +1051,8 @@ ROOT_DIR = Path(__file__).resolve().parent.parent.parent  # Moves up 3 levels to
 load_dotenv(ROOT_DIR / ".env")
 
 # Now retrieve the API key as a string
-api_key = os.getenv("OPENAI_API_KEY")
-if not api_key:
-    raise ValueError("OPENAI_API_KEY is not set in the .env file!")
+api_key = "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"
+
 
 llm = OpenAIChat(
     openai_api_key=api_key, model_name="gpt-4o-mini", max_tokens=4096

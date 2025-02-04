@@ -10,20 +10,10 @@ from utils.unstructured_data_utils import (
     relationshipTextToListOfDict,
 )
 
-import os
-from dotenv import load_dotenv
-from pathlib import Path
 
-# Get the root directory dynamically
-ROOT_DIR = Path(__file__).resolve().parent.parent.parent  # Moves up 3 levels to reach root/
 
-# Load the environment variables from the .env file in the root directory
-load_dotenv(ROOT_DIR / ".env")
+api_key = "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"  # <<<<----- REPLACE WITH YOUR ACTUAL API KEY
 
-# Now retrieve the API key as a string
-api_key = os.getenv("OPENAI_API_KEY")
-if not api_key:
-    raise ValueError("OPENAI_API_KEY is not set in the .env file!")
 
 
 
@@ -292,15 +282,13 @@ def data_to_cypher(data):
 
 if __name__ == "__main__":
     # Initialize LLM 
-        openai_api_key = api_key
-        print("The key is : ", openai_api_key)
 
         llm = OpenAIChat(
-            openai_api_key=openai_api_key, model_name="gpt-4o", max_tokens=4000
+            openai_api_key=api_key, model_name="gpt-4o", max_tokens=4000
         )
 
         client = OpenAI(
-            api_key=os.environ.get("OPENAI_API_KEY"),  # This is the default and can be omitted
+            api_key=api_key,  # This is the default and can be omitted
         )   
 
         disambiguation = DataDisambiguation(llm)
