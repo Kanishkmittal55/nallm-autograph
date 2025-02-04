@@ -12,7 +12,7 @@ from utils.unstructured_data_utils import (
 
 
 
-api_key = "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"  # <<<<----- REPLACE WITH YOUR ACTUAL API KEY
+api_key = "api_key"  # <<<<----- REPLACE WITH YOUR ACTUAL API KEY
 
 
 

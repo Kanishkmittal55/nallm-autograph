@@ -64,7 +64,7 @@ neo4j_connection = Neo4jDatabase(
 
 
 # Initialize LLM modules
-openai_api_key = "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"
+openai_api_key = "api-key"
 
 
 # Define FastAPI endpoint
@@ -1051,7 +1051,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent.parent  # Moves up 3 levels to
 load_dotenv(ROOT_DIR / ".env")
 
 # Now retrieve the API key as a string
-api_key = "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"
+api_key = "api-key"
 
 
 llm = OpenAIChat(
